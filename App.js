@@ -1,5 +1,6 @@
 import 'react-native-gesture-handler';
 import React, { useState, useEffect } from 'react';
+import { View, StyleSheet, Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -29,7 +30,7 @@ export default function App() {
     return null;
   }
 
-  return (
+  const appContent = (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {user ? (
@@ -46,4 +47,33 @@ export default function App() {
       </Stack.Navigator>
     </NavigationContainer>
   );
+
+  // On web, wrap in iPhone 14 sized container
+  if (Platform.OS === 'web') {
+    return (
+      <View style={styles.webContainer}>
+        <View style={styles.phoneFrame}>
+          {appContent}
+        </View>
+      </View>
+    );
+  }
+
+  return appContent;
 }
+
+const styles = StyleSheet.create({
+  webContainer: {
+    flex: 1,
+    backgroundColor: '#1a1a1a',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  phoneFrame: {
+    width: 390,
+    height: 844,
+    overflow: 'hidden',
+    boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+    borderRadius: 40,
+  },
+});

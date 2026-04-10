@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,17 +7,29 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Animated,
 } from 'react-native';
-import { collection, query, where, getDocs, deleteDoc, doc } from 'firebase/firestore';
+import { collection, query, where, getDocs, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 
 export default function FavoritesScreen({ navigation }) {
   const [favorites, setFavorites] = useState([]);
   const [loading, setLoading] = useState(true);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     loadFavorites();
   }, []);
+
+  useEffect(() => {
+    if (!loading && favorites.length > 0) {
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [loading, favorites]);
 
   const loadFavorites = async () => {
     try {
@@ -28,7 +40,12 @@ export default function FavoritesScreen({ navigation }) {
       const querySnapshot = await getDocs(q);
       const favs = [];
       querySnapshot.forEach((doc) => {
-        favs.push({ id: doc.id, ...doc.data() });
+        // Initialize watchStatus to 'unwatched' if not set (local only)
+        favs.push({
+          id: doc.id,
+          ...doc.data(),
+          watchStatus: doc.data().watchStatus || 'unwatched'
+        });
       });
       setFavorites(favs);
     } catch (error) {
@@ -45,6 +62,20 @@ export default function FavoritesScreen({ navigation }) {
       Alert.alert('Success', 'Removed from favorites');
     } catch (error) {
       Alert.alert('Error', 'Failed to delete favorite: ' + error.message);
+    }
+  };
+
+  const updateWatchStatus = async (favoriteId, newStatus) => {
+    try {
+      await updateDoc(doc(db, 'favorites', favoriteId), {
+        watchStatus: newStatus,
+        watchStatusUpdatedAt: new Date().toISOString()
+      });
+      setFavorites(favorites.map(fav =>
+        fav.id === favoriteId ? { ...fav, watchStatus: newStatus } : fav
+      ));
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update status: ' + error.message);
     }
   };
 
@@ -74,22 +105,84 @@ export default function FavoritesScreen({ navigation }) {
             </Text>
           </View>
         ) : (
-          favorites.map((favorite) => (
-            <View key={favorite.id} style={styles.favoriteCard}>
-              <Text style={styles.favTitle}>{favorite.title}</Text>
-              <Text style={styles.favDescription}>{favorite.description}</Text>
-              <Text style={styles.favReason}>
-                <Text style={styles.boldText}>Why you'll love it: </Text>
-                {favorite.reason}
-              </Text>
-              <TouchableOpacity
-                style={styles.deleteButton}
-                onPress={() => deleteFavorite(favorite.id)}
-              >
-                <Text style={styles.deleteButtonText}>Remove</Text>
-              </TouchableOpacity>
-            </View>
-          ))
+          <Animated.View style={{ opacity: fadeAnim }}>
+            {favorites.map((favorite) => (
+              <View key={favorite.id} style={styles.favoriteCard}>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.favTitle}>{favorite.title}</Text>
+                  <View style={[
+                    styles.statusBadge,
+                    favorite.watchStatus === 'watched' && styles.statusBadgeWatched,
+                    favorite.watchStatus === 'watching' && styles.statusBadgeWatching,
+                    (!favorite.watchStatus || favorite.watchStatus === 'unwatched') && styles.statusBadgeUnwatched
+                  ]}>
+                    <Text style={[
+                      styles.statusBadgeText,
+                      (!favorite.watchStatus || favorite.watchStatus === 'unwatched') && styles.statusBadgeTextUnwatched
+                    ]}>
+                      {favorite.watchStatus === 'watched' ? '✓ Watched' :
+                       favorite.watchStatus === 'watching' ? '▶ Watching' :
+                       '○ To Watch'}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={styles.favDescription}>{favorite.description}</Text>
+                <Text style={styles.favReason}>
+                  <Text style={styles.boldText}>Why you'll love it: </Text>
+                  {favorite.reason}
+                </Text>
+
+                <View style={styles.statusButtons}>
+                  <TouchableOpacity
+                    style={[
+                      styles.statusButton,
+                      (!favorite.watchStatus || favorite.watchStatus === 'unwatched') && styles.statusButtonActive
+                    ]}
+                    onPress={() => updateWatchStatus(favorite.id, 'unwatched')}
+                  >
+                    <Text style={[
+                      styles.statusButtonText,
+                      (!favorite.watchStatus || favorite.watchStatus === 'unwatched') && styles.statusButtonTextActive
+                    ]}>To Watch</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.statusButton,
+                      favorite.watchStatus === 'watching' && styles.statusButtonActive
+                    ]}
+                    onPress={() => updateWatchStatus(favorite.id, 'watching')}
+                  >
+                    <Text style={[
+                      styles.statusButtonText,
+                      favorite.watchStatus === 'watching' && styles.statusButtonTextActive
+                    ]}>Watching</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.statusButton,
+                      favorite.watchStatus === 'watched' && styles.statusButtonActive
+                    ]}
+                    onPress={() => updateWatchStatus(favorite.id, 'watched')}
+                  >
+                    <Text style={[
+                      styles.statusButtonText,
+                      favorite.watchStatus === 'watched' && styles.statusButtonTextActive
+                    ]}>Watched</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.deleteButton}
+                  onPress={() => deleteFavorite(favorite.id)}
+                >
+                  <Text style={styles.deleteButtonText}>Remove</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </Animated.View>
         )}
       </ScrollView>
     </View>
@@ -122,6 +215,11 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     color: 'white',
+  },
+  subtitle: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: 5,
   },
   content: {
     flex: 1,
@@ -182,10 +280,67 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
     alignItems: 'center',
+    marginTop: 10,
   },
   deleteButtonText: {
     color: 'white',
     fontWeight: '600',
     fontSize: 16,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  statusBadge: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+  },
+  statusBadgeUnwatched: {
+    backgroundColor: '#E5E5EA',
+  },
+  statusBadgeWatching: {
+    backgroundColor: '#007AFF',
+  },
+  statusBadgeWatched: {
+    backgroundColor: '#34C759',
+  },
+  statusBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'white',
+  },
+  statusBadgeTextUnwatched: {
+    color: '#666',
+  },
+  statusButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 15,
+    marginBottom: 10,
+  },
+  statusButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#ddd',
+    backgroundColor: 'white',
+    alignItems: 'center',
+  },
+  statusButtonActive: {
+    backgroundColor: '#FF69B4',
+    borderColor: '#FF69B4',
+  },
+  statusButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#666',
+  },
+  statusButtonTextActive: {
+    color: 'white',
   },
 });
